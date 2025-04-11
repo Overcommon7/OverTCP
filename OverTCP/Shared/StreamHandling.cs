@@ -33,7 +33,6 @@ namespace OverTCP
 
                 Thread.Sleep(10);
             }
-
         }
     }
 }

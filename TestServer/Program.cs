@@ -15,8 +15,6 @@ namespace TestServer
             while (!server.HasConnectedClients)
                 Thread.Sleep(100);
 
-            _ = server.GetConnectedClients();
-
             for (int i = 0; i < 100_000; i++)
             {
                 server.Server.SendToAll(Create.Data(Messages.Placeholder, Header.ALL_ULONG_ID, Random.Shared.Next().ToString()));
