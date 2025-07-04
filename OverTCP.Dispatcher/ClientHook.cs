@@ -12,7 +12,7 @@ namespace OverTCP.Dispatcher
         internal bool DidReconnect => mReconnected;
         internal bool HasExceptions => mExceptions.Count > 0;
         
-        ConcurrentBag<SingleThreadClient<T>.DataRequest> mRequests;
+        ConcurrentQueue<SingleThreadClient<T>.DataRequest> mRequests;
         List<Exception> mExceptions;
         internal ClientHook(Client client)
         {
@@ -40,7 +40,7 @@ namespace OverTCP.Dispatcher
         {
             SingleThreadClient<T>.DataRequest request = new();
             request.mBytes = Extract.All(data, out request.mType, out request.mHeaderID).ToArray();
-            mRequests.Add(request);
+            mRequests.Enqueue(request);
         }
 
         internal SingleThreadClient<T>.DataRequest[] GetRequests()

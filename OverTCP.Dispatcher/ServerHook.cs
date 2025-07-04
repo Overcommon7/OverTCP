@@ -10,7 +10,7 @@ namespace OverTCP.Dispatcher
     public record ConnectedClient(ulong clientID, TcpClient client);
     internal class ServerHook<T> : IDisposable where T : struct, Enum
     {
-        ConcurrentBag<SingleThreadServer<T>.DataRequest> mRequests;
+        ConcurrentQueue<SingleThreadServer<T>.DataRequest> mRequests;
         List<Error> mErrors;
         List<ulong> mDisconnectedClients;
         List<ConnectedClient> mConnectedClients;
@@ -53,7 +53,7 @@ namespace OverTCP.Dispatcher
             SingleThreadServer<T>.DataRequest request = new();
             request.mBytes = Extract.All(data, out request.mType, out request.mHeaderID).ToArray();
             request.mSentByID = clientID;
-            mRequests.Add(request);
+            mRequests.Enqueue(request);
         }
 
         private void Server_OnClientDisconnected(ulong clientID)

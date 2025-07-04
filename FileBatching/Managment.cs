@@ -98,7 +98,7 @@ namespace OverTCP.File
             try
             {
                 var fileStream = System.IO.File.OpenRead(filepath);
-                var buffer = new byte[int.MaxValue / 2];
+                var buffer = new byte[1024 * 1024 * 250];
                 long bytesRead = 0;
                 while (true)
                 {
