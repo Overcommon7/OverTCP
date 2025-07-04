@@ -27,6 +27,7 @@ namespace OverTCP
         public delegate void ErrorThrown(ulong clientID, Exception exception);
 
         public event DataRecieved? OnDataRecieved;
+        public event DataRecieved? OnPartialDataRecieved;
         public event ClientConnected? OnClientConnected;
         public event ClientDisconnected? OnClientDisconnected;
         public event Action? OnServerShutdown;
@@ -79,7 +80,7 @@ namespace OverTCP
                 return;
             }
 
-            Log.Message($"Server Created -> {IPAddress}");
+            Log.Message($"Server Created -> {IPAddress} On Port {Port}");
             mIsServerRunning = true;
             EnableNewConnections();
             mDataPollingThread.Start();
@@ -101,7 +102,7 @@ namespace OverTCP
                
         }
 
-        public void SendTo(ulong clientID, byte[] data)
+        public void SendTo(ulong clientID, ReadOnlySpan<byte> data)
         {
             int index = mClients.FindIndex(client => client.ID == clientID);
             if (index == -1)
@@ -114,7 +115,7 @@ namespace OverTCP
                 OnErrorThrown_Write?.Invoke(clientID, exception);
         }
 
-        public void SendToAll(byte[] data)
+        public void SendToAll(ReadOnlySpan<byte> data)
         {
             for (int i = 0; i < mClients.Count; ++i)
             {
@@ -126,7 +127,7 @@ namespace OverTCP
             }                
         }
 
-        public void SendToAllBut(byte[] data, ulong excludingID)
+        public void SendToAllBut(ReadOnlySpan<byte> data, ulong excludingID)
         {
             for (int i = 0; i < mClients.Count; ++i)
             {
@@ -140,7 +141,7 @@ namespace OverTCP
                 }                    
             }
         }
-        public void SendToAllBut(byte[] data, params ulong[] excludingIDs)
+        public void SendToAllBut(ReadOnlySpan<byte> data, params ulong[] excludingIDs)
         {
             for (int i = 0; i < mClients.Count; ++i)
             {
@@ -188,6 +189,7 @@ namespace OverTCP
                     }
                 }
 
+
                 for (int i = 0; i < mClients.Count; ++i)
                 {
                     var client = mClients[i];
@@ -217,7 +219,6 @@ namespace OverTCP
             lock (mClients)
                 mClients.Add(client);
 
-            Log.Message(client.ID);
             client.Client.GetStream().Write(BitConverter.GetBytes(client.ID));
             OnClientConnected?.Invoke(client.ID, client.Client);
         }

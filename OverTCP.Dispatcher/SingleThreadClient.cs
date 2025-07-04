@@ -7,7 +7,7 @@ using System.Text;
 
 namespace OverTCP.Dispatcher
 {
-    public class SingleThreadClient<T> : IDisposable where T : struct, Enum
+    public sealed class SingleThreadClient<T> : IDisposable where T : struct, Enum
     {
         public struct DataRequest
         {

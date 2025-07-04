@@ -1,15 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\FileBatching\OverTCP.File.csproj" />
-    <ProjectReference Include="..\OverTCP.Dispatcher\OverTCP.Dispatcher.csproj" />
+    <ProjectReference Include="..\OverTCP.Messaging\OverTCP.Messaging.csproj" />
+    <ProjectReference Include="..\OverTCP\OverTCP.csproj" />
   </ItemGroup>
 
 </Project>

@@ -6,8 +6,8 @@ namespace OverTCP.Messaging
 {
     public static class Header
     {
-        public static ulong ALL_ULONG_ID = 255ul;
-        public static int ALL_INT_ID = 255;
+        public const ulong ALL_ULONG_ID = 255ul;
+        public const int ALL_INT_ID = 255;
         public enum Style : int
         {
             IntegerID,
@@ -27,8 +27,8 @@ namespace OverTCP.Messaging
             if (!BitConverter.TryWriteBytes(buffer.Slice(0 , sizeof(int)), Convert.ToInt32(messageName)))
                 throw new Exception("Could Not Convert Message To Int32");
 
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.IArguments);
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2, sizeof(int)), byteData.Length);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.IArguments);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2, sizeof(int)), byteData.Length);
             byteData.AsSpan().CopyTo(buffer.Slice(sizeof(int) * 3));
             return data;
         }
@@ -39,9 +39,9 @@ namespace OverTCP.Messaging
             int size = sizeof(int) * 3;
             byte[] data = new byte[size];
             Span<byte> buffer = new Span<byte>(data);
-            BitConverter.TryWriteBytes(buffer.Slice(0, sizeof(int)), Convert.ToInt32(messageName));
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.IntegerID);
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2), id);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(0, sizeof(int)), Convert.ToInt32(messageName));
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.IntegerID);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2), id);
             return data;
         }
 
@@ -51,9 +51,9 @@ namespace OverTCP.Messaging
             int size = sizeof(int) + sizeof(int) + sizeof(ulong);
             byte[] data = new byte[size];
             Span<byte> buffer = new Span<byte>(data);
-            BitConverter.TryWriteBytes(buffer.Slice(0, sizeof(int)), Convert.ToInt32(messageName));
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.ULongID);
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2), id);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(0, sizeof(int)), Convert.ToInt32(messageName));
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.ULongID);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2), id);
             return data;
         }
 
@@ -65,9 +65,9 @@ namespace OverTCP.Messaging
             int size = sizeof(int) + sizeof(int) + sizeof(int) + stringLengthInBytes;
             byte[] data = new byte[size];
             Span<byte> buffer = new Span<byte>(data);
-            BitConverter.TryWriteBytes(buffer.Slice(0, sizeof(int)), Convert.ToInt32(messageName));
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.StringID);
-            BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2, sizeof(int)), stringLengthInBytes);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(0, sizeof(int)), Convert.ToInt32(messageName));
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int), sizeof(int)), (int)Style.StringID);
+            _ = BitConverter.TryWriteBytes(buffer.Slice(sizeof(int) * 2, sizeof(int)), stringLengthInBytes);
             idAsBytes.CopyTo(buffer.Slice(sizeof(int) * 3));
             return data;
         }

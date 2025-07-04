@@ -1,11 +1,12 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace OverTCP.Messaging
 {
     public static class Format
     {
-        public static bool ToStruct<T>(byte[] bytes, out T value) where T : unmanaged
+        public static bool ToStruct<T>(ReadOnlySpan<byte> bytes, out T value) where T : unmanaged
         {
             try
             {
@@ -18,6 +19,10 @@ namespace OverTCP.Messaging
                 return false;
             }
            
+        }
+        public static string ToString(ReadOnlySpan<byte> bytes)
+        {
+            return Encoding.UTF8.GetString(bytes);
         }
         public static ReadOnlySpan<byte> ToData<T>(T data) where T : unmanaged
         {
@@ -33,10 +38,13 @@ namespace OverTCP.Messaging
         }
 
         public static ReadOnlySpan<byte> StructArrayToData<T>(T[] structs) where T : unmanaged
+            => StructArrayToData(structs.AsSpan());
+
+        public static ReadOnlySpan<byte> StructArrayToData<T>(Span<T> structs) where T : unmanaged
         {
             try
             {
-                return MemoryMarshal.AsBytes(structs.AsSpan());
+                return MemoryMarshal.AsBytes(structs);
             }
             catch (Exception)
             {
@@ -45,7 +53,7 @@ namespace OverTCP.Messaging
             }
         }
 
-        public static Span<T> DataToStructArray<T>(Span<byte> bytes) where T : unmanaged
+        public static ReadOnlySpan<T> DataToStructArray<T>(ReadOnlySpan<byte> bytes) where T : unmanaged
         {
             try
             {

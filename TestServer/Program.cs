@@ -2,11 +2,13 @@
 using OverTCP;
 using System.Text;
 using OverTCP.Dispatcher;
+using OverTCP.File;
 
 namespace TestServer
 {
     internal class Program
     {
+        
         static void Main(string[] args)
         {
             SingleThreadServer<Messages> server = new();
@@ -15,25 +17,33 @@ namespace TestServer
             while (!server.HasConnectedClients)
                 Thread.Sleep(100);
 
-            for (int i = 0; i < 100_000; i++)
+            void SendFileChunk(byte[] fileChunk, Managment.Partial partial, long bytesRead)
             {
-                server.Server.SendToAll(Create.Data(Messages.Placeholder, Header.ALL_ULONG_ID, Random.Shared.Next().ToString()));
-                if (server.HasRequests)
-                {
-                    foreach (var request in server.GetRequests())
-                        Server_OnDataRecieved(request);
-                }
-                Thread.Sleep(Random.Shared.Next(7, 33));
+                Managment.SendFileChunk(server.Server, fileChunk);
+                Console.WriteLine(partial);
             }
 
-            server.Server.SendToAll(Create.Data(Messages.Placeholder, Header.ALL_ULONG_ID, "Quit"));
-            Thread.Sleep(1000);
+            while (true)
+            {
+                var line = Console.ReadLine();
+                if (string.IsNullOrEmpty(line))
+                    continue;
+
+                if (line.StartsWith('Q'))
+                    break;
+
+                if (!File.Exists(line))
+                    continue;
+
+
+                Managment.SendSingleFile(line, SendFileChunk);
+            }
             server.Stop();
         }
 
         private static void Server_OnDataRecieved(SingleThreadServer<Messages>.DataRequest request)
         {
-            Console.WriteLine(request.mType + "From: " + request.mSentByID + " - " + Encoding.UTF8.GetString(request.mBytes));
+            Console.WriteLine(request.mType + "From: " + request.mSentByID);
         }
     }
 }

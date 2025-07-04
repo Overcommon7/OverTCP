@@ -11,7 +11,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestClient", "TestClient\Te
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.Messaging", "OverTCP.Messaging\OverTCP.Messaging.csproj", "{0ADA0A48-35E1-45AD-92E5-4194D75A5283}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverTCP.Dispatcher", "OverTCP.Dispatcher\OverTCP.Dispatcher.csproj", "{3164FFD5-C408-429B-BAAA-140D67FBD348}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.Dispatcher", "OverTCP.Dispatcher\OverTCP.Dispatcher.csproj", "{3164FFD5-C408-429B-BAAA-140D67FBD348}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.File", "FileBatching\OverTCP.File.csproj", "{28056860-261D-40E3-A486-417A6D78B0CE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -39,6 +41,10 @@ Global
 		{3164FFD5-C408-429B-BAAA-140D67FBD348}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3164FFD5-C408-429B-BAAA-140D67FBD348}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3164FFD5-C408-429B-BAAA-140D67FBD348}.Release|Any CPU.Build.0 = Release|Any CPU
+		{28056860-261D-40E3-A486-417A6D78B0CE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{28056860-261D-40E3-A486-417A6D78B0CE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{28056860-261D-40E3-A486-417A6D78B0CE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{28056860-261D-40E3-A486-417A6D78B0CE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -4,8 +4,6 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
-using Windows.Devices.Display.Core;
-using Windows.Services.Maps;
 
 namespace OverTCP
 {
@@ -16,6 +14,7 @@ namespace OverTCP
         public event Action? OnServerClosed;
         public event Action<Exception>? OnErrorPosted;
         public event Action? OnReconnected;
+        public event DataRecieved? OnPartialDataRecieved;
         public TcpClient? TCPClient { get; private set; }
         Thread mPollingThread;
         bool mIsPolling;
@@ -26,6 +25,7 @@ namespace OverTCP
         IPAddress? mAddress;
         int mPort;
         public ulong ID => mID;
+        public IPAddress IPAddress => mAddress ?? throw new NullReferenceException();
         public Client(int pollingInterval = 16)
         {
             mPollingThread = new Thread(PollingLoop);
@@ -174,7 +174,11 @@ namespace OverTCP
             if (mPort == -1)
                 return false;
 
-            return Connect(mAddress, mPort);
+            if (!Connect(mAddress, mPort))
+                return false;
+
+            OnReconnected?.Invoke();
+            return true;
         }
         public void Disconnect() => Dispose();
         ~Client() => Dispose();

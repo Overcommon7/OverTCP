@@ -4,10 +4,34 @@ namespace OverTCP.Messaging
 {
     public static class Extract
     {
+        public static Span<byte> Contents(byte[] data, out int message, out int clientID, out int gameID)
+        {
+            var buffer = data.AsSpan();
+            message = BitConverter.ToInt32(buffer.Slice(0, sizeof(int)));
+            clientID = BitConverter.ToInt32(buffer.Slice(sizeof(int) * 2, sizeof(int)));
+            gameID = BitConverter.ToInt32(buffer.Slice(sizeof(int) * 3, sizeof(int)));
+            return MessageData(data);
+        }
+
+        public static Span<byte> All<T>(byte[] data, out T message, out int id)
+            where T : struct, Enum
+        {
+            Header(data, out message, out id);
+            return MessageData(data);
+        }
+
         public static Span<byte> All<T>(byte[] data, out T message, out ulong id)
             where T : struct, Enum
         {
             Header(data, out message, out id);
+            return MessageData(data);
+        }
+
+        public static Span<byte> Any(byte[] data, out int message, out ulong id)
+        {
+            var buffer = data.AsSpan();
+            message = BitConverter.ToInt32(buffer.Slice(0, sizeof(int)));
+            id = BitConverter.ToUInt64(buffer.Slice(sizeof(int) * 2, sizeof(ulong)));
             return MessageData(data);
         }
         public static void Header<T>(ReadOnlySpan<byte> buffer, out T message, out int id)

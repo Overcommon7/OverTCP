@@ -8,7 +8,7 @@ namespace OverTCP
 {
     internal class ConnectionHandler
     {
-        Thread mConnectionThread;
+        Thread? mConnectionThread;
         Listener? mListener;
 
         internal delegate void ClientConnected(ConnectedClient client);
@@ -22,13 +22,14 @@ namespace OverTCP
             mListener = new Listener(address, port);
             mListener.Start();
             mListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            mConnectionThread.Start();
+            (mConnectionThread ??= new Thread(HandleIncomingConnections)).Start();
         }
 
         internal void Stop()
         {
             mListener?.Stop();
-            mConnectionThread.Join();
+            mConnectionThread?.Join();
+            mConnectionThread = null;
         }
 
         private void HandleIncomingConnections()

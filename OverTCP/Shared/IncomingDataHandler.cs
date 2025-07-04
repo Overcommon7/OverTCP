@@ -14,7 +14,7 @@ namespace OverTCP
     }
     internal static class IncomingDataHandler
     {
-        internal const int HEADER_SIZE = 4;
+        internal const int HEADER_SIZE = sizeof(int);
 
         internal static ReadCode HandleFromClient(TcpClient client, out byte[]? data, out Exception? exception)
         {

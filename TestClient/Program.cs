@@ -4,6 +4,7 @@ using OverTCP.Messaging;
 using OverTCP;
 using OverTCP.Dispatcher;
 using System;
+using OverTCP.File;
 
 namespace TestClient
 {
@@ -12,7 +13,7 @@ namespace TestClient
         static void Main(string[] args)
         {
             Console.WriteLine("Enter The IP Address");
-            string? ipAdress = Console.ReadLine();
+            string? ipAdress = "192.168.1.79";
 
             if (string.IsNullOrEmpty(ipAdress))
                 return;
@@ -24,6 +25,9 @@ namespace TestClient
                 return;
             }
 
+            var directory = Directory.GetCurrentDirectory() + '\\';
+
+            FileStream? stream = null;
             while (true)
             {
                 if (client.AnyExceptions)
@@ -35,26 +39,16 @@ namespace TestClient
                 }
 
                 var requests = client.GetDataRequests();
-                bool quit = false;
-                client.SendData(Messages.Placeholder, Random.Shared.Next().ToString());
+                
                 foreach (var request in requests)
                 {
-                    var message = Encoding.UTF8.GetString(request.mBytes);
-                    if (message == "Quit")
+                    if (request.mType == Messages.FileData)
                     {
-                        quit = true;
-                        break;
+                        Managment.OnFileDataReceived(request.mBytes, directory, ref stream);
+                        Console.WriteLine((Managment.Partial)request.mBytes[0]);
                     }
-                    Console.WriteLine(message);
                 }
-
-                if (quit)
-                    break;
-
-                Thread.Sleep(Random.Shared.Next(7, 33));
             }
-
-            client.Disconnect();
         }
     }
 }

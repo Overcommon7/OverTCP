@@ -8,13 +8,23 @@ namespace OverTCP.Messaging
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct FixedString_8
     {
-        [NonSerialized] const int Size = 8;
+        [NonSerialized] public const int Size = 8;
         public FixedString_8(string data)
         {
             Value = data;
         }
 
         private fixed byte mData[Size];
+        public ReadOnlySpan<byte> Bytes
+        {
+            get
+            {
+                fixed (byte* ptr = mData)
+                {
+                    return new ReadOnlySpan<byte>(ptr, Size);
+                }
+            }
+        }
         public string Value
         {
             get
@@ -48,7 +58,7 @@ namespace OverTCP.Messaging
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct FixedString_16
     {
-        [NonSerialized] const int Size = 16;
+        [NonSerialized] public const int Size = 16;
 
         public FixedString_16(string data)
         {
@@ -56,6 +66,16 @@ namespace OverTCP.Messaging
         }
 
         private fixed byte mData[Size];
+        public ReadOnlySpan<byte> Bytes
+        {
+            get
+            {
+                fixed (byte* ptr = mData)
+                {
+                    return new ReadOnlySpan<byte>(ptr, Size);
+                }
+            }
+        }
         public string Value
         {
             get
@@ -88,13 +108,23 @@ namespace OverTCP.Messaging
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct FixedString_32
     {
-        [NonSerialized] const int Size = 32;
+        [NonSerialized] public const int Size = 32;
         public FixedString_32(string data)
         {
             Value = data;
         }
 
         private fixed byte mData[Size];
+        public ReadOnlySpan<byte> Bytes
+        {
+            get
+            {
+                fixed (byte* ptr = mData)
+                {
+                    return new ReadOnlySpan<byte>(ptr, Size);
+                }
+            }
+        }
         public string Value
         {
             get
@@ -127,13 +157,23 @@ namespace OverTCP.Messaging
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct FixedString_64
     {
-        [NonSerialized] const int Size = 64;
+        [NonSerialized] public const int Size = 64;
         public FixedString_64(string data)
         {
             Value = data;
         }
 
         private fixed byte mData[Size];
+        public ReadOnlySpan<byte> Bytes
+        {
+            get
+            {
+                fixed (byte* ptr = mData)
+                {
+                    return new ReadOnlySpan<byte>(ptr, Size);
+                }
+            }
+        }
         public string Value
         {
             get
@@ -166,7 +206,7 @@ namespace OverTCP.Messaging
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct FixedString_128
     {
-        [NonSerialized] const int Size = 128;
+        [NonSerialized] public const int Size = 128;
 
         public FixedString_128(string data)
         {
@@ -174,6 +214,16 @@ namespace OverTCP.Messaging
         }
 
         private fixed byte mData[Size];
+        public ReadOnlySpan<byte> Bytes
+        {
+            get
+            {
+                fixed (byte* ptr = mData)
+                {
+                    return new ReadOnlySpan<byte>(ptr, Size);
+                }
+            }
+        }
         public string Value
         {
             get
@@ -206,7 +256,7 @@ namespace OverTCP.Messaging
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct FixedString_256
     {
-        [NonSerialized] const int Size = 256;
+        [NonSerialized] public const int Size = 256;
 
         public FixedString_256(string data)
         {
@@ -214,6 +264,17 @@ namespace OverTCP.Messaging
         }
 
         private fixed byte mData[Size];
+        public ReadOnlySpan<byte> Bytes
+        {
+            get
+            {
+                fixed (byte* ptr = mData) 
+                {
+                    return new ReadOnlySpan<byte>(ptr, Size);
+                }
+            }
+        }
+
         public string Value
         {
             get

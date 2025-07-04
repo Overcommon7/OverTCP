@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FileBatching\OverTCP.File.csproj" />
     <ProjectReference Include="..\OverTCP.Dispatcher\OverTCP.Dispatcher.csproj" />
   </ItemGroup>
 

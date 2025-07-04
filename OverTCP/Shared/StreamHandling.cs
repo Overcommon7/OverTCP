@@ -7,13 +7,13 @@ namespace OverTCP
 {
     internal static class StreamHandling
     {
+        const int RETRIES_TILL_FAIL = 10;
         internal static byte[] Read(NetworkStream stream, int count)
         {
             byte[] buffer = new byte[count];
-            int bytesRead = 0, prevRollingCount = 0, retryCount = 0, rollingCount = count;
+            int bytesRead = 0, retryCount = 0, rollingCount = count;
             while (true)
-            {
-                prevRollingCount = rollingCount;               
+            {         
                 int read = stream.Read(buffer, bytesRead, rollingCount);
                 bytesRead += read;
                 rollingCount -= read;
@@ -26,7 +26,7 @@ namespace OverTCP
                 else
                     retryCount = 0;
 
-                if (retryCount >= 10)
+                if (retryCount >= RETRIES_TILL_FAIL)
                 {
                     throw new Exception($"Could Not Fetch {count} Bytes Of Data From Stream {stream.Socket.RemoteEndPoint}");
                 }

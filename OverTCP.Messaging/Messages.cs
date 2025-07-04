@@ -5,6 +5,12 @@ namespace OverTCP.Messaging
 {
     public enum Messages : int
     {
-        Placeholder
+        Placeholder,
+
+        FileData = 100_000,
+        DirectoryData,
+        FileCount,
+        ReadyForFiles, 
+        FileDataError
     }
 }

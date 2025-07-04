@@ -18,9 +18,7 @@ namespace OverTCP
         static string mMessage = string.Empty;
         public static void Message(object? message)
         {
-#if DEBUG
             Message(message?.ToString());
-#endif
         }
         public static void Warning(object? message)
         {
@@ -33,7 +31,6 @@ namespace OverTCP
 
         public static void Message(string? message)
         {
-#if DEBUG
             if (string.IsNullOrEmpty(message))
                 mMessage = "MESSAGE: NULL";
             else
@@ -41,7 +38,6 @@ namespace OverTCP
            
             Console.WriteLine(mMessage);
             OnMessagePosted?.Invoke(mMessage, Severity.Message);
-#endif
         }
         public static void Warning(string? message)
         {
