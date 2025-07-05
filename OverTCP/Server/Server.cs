@@ -6,22 +6,28 @@ using System.Net;
 using System.Threading;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Buffers;
 
 namespace OverTCP
 {
     public class Server : IDisposable
     {
-        const int POLLING_SCALING_FACTOR = 2;
+        /// <summary>
+        /// A value of 1 would wait 1 millisecond to check if a client is connected or not where as 1000 would wait 1 mirco second
+        /// </summary>
+        const int POLLING_SCALING_FACTOR = 5;
 
         List<ConnectedClient> mClients;
+        List<byte[]> mRentedArrays;
         ConnectionHandler mConnectionHandler;
         Thread mDataPollingThread;
         bool mIsServerRunning;
         bool mIsDisposed = false;
         int mPollingInterval;
-        (int, ulong)[] mDisconnectedClients = new (int, ulong)[5];
+        bool mAutomaticMemoryManagement;
+        List<(int, ulong)> mDisconnectedClients = [];
 
-        public delegate void DataRecieved(ulong clientID, byte[] data);
+        public delegate void DataRecieved(ulong clientID, Memory<byte> data);
         public delegate void ClientConnected(ulong clientID, TcpClient client);
         public delegate void ClientDisconnected(ulong clientID);
         public delegate void ErrorThrown(ulong clientID, Exception exception);
@@ -38,7 +44,7 @@ namespace OverTCP
         public int ClientCount => mClients.Count;
         public int Port { get; private set; } = 0;
         public IPAddress? IPAddress { get; private set; } 
-        public Server(int pollingInterval = 10) 
+        public Server(int pollingInterval = 16, bool automaticMemoryManagement = true) 
         { 
             mClients = new List<ConnectedClient>();
             mConnectionHandler = new ConnectionHandler();
@@ -46,6 +52,8 @@ namespace OverTCP
             mDataPollingThread.IsBackground = true;
             mIsServerRunning = false;
             mPollingInterval = pollingInterval;
+            mAutomaticMemoryManagement = automaticMemoryManagement;
+            mRentedArrays = [];
         }
 
         /// <summary>
@@ -162,45 +170,62 @@ namespace OverTCP
             while (mIsServerRunning)
             {    
                 stopwatch.Restart();
-                int disconeectedCount = 0;
                 int index = 0; 
                 for (int i = 0; i < mClients.Count; ++i)
                 {
                     var client = mClients[i];
                     if (!IsClientConnected(client))
                     {
-                        Log.Message($"Client Disconnected: {client.ID}");
-                        mDisconnectedClients[disconeectedCount] = (index, client.ID);
-                        ++disconeectedCount;
+                        Log.Message($"Client Disconnected: {client.ID}");                        
+                        mDisconnectedClients.Add((index, client.ID));
                     }
                     ++index;
                 }
 
-                for (int i = 0; i < disconeectedCount; ++i)
+                for (int i = 0; i < mDisconnectedClients.Count; ++i)
                 {
                     OnClientDisconnected?.Invoke(mDisconnectedClients[i].Item2);
                 }
 
-                lock (mDisconnectedClients)
+                lock (mClients)
                 {
-                    for (int i = 0; i < disconeectedCount; ++i)
+                    for (int i = 0; i < mDisconnectedClients.Count; ++i)
                     {
                         mClients.RemoveAt(mDisconnectedClients[i].Item1);
                     }
+
+                    mDisconnectedClients.Clear();
                 }
 
+                if (mAutomaticMemoryManagement)
+                    FreeAllocatedArrays();
 
                 for (int i = 0; i < mClients.Count; ++i)
                 {
                     var client = mClients[i];
                     while (true)
-                    { 
-                        var code = IncomingDataHandler.HandleFromClient(client.Client, out var data, out var exception);
-                        if (code == ReadCode.ReadSuccesful && data is not null)
-                            OnDataRecieved?.Invoke(client.ID, data);
-                        else if (code == ReadCode.AllDataRead)
+                    {
+                        var values = IncomingDataHandler.HandleFromClient(client.Client, out var data, out var exception);
+
+                        if (values.mIsRentedFromPool && data is not null)
+                            mRentedArrays.Add(data);
+
+                        if (values.mReadCode == ReadCode.AllDataRead)
                             break;
-                        else if (code == ReadCode.Error)
+
+                        else if (values.mReadCode == ReadCode.ReadSuccesful && data is not null)
+                        {
+                            if (data.Length != values.mSize)
+                            {
+                                OnDataRecieved?.Invoke(client.ID, data.AsMemory(0, values.mSize));
+                            }
+                            else
+                            {
+                                OnDataRecieved?.Invoke(client.ID, data.AsMemory());
+                            }
+                        }
+                           
+                        else if (values.mReadCode == ReadCode.Error)
                         {
                             OnErrorThrown_Read?.Invoke(client.ID, exception ?? new Exception());
                             break;
@@ -212,6 +237,15 @@ namespace OverTCP
                 if (waitTime > 0)
                     Thread.Sleep(waitTime);
             }
+        }
+
+        public void FreeAllocatedArrays()
+        {
+            var shared = ArrayPool<byte>.Shared;
+            foreach (var array in mRentedArrays)
+                shared.Return(array);
+
+            mRentedArrays.Clear();
         }
 
         private void ConnectionHandler_OnClientConnected(ConnectedClient client)

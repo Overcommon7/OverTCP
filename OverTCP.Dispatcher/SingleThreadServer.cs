@@ -19,12 +19,14 @@ namespace OverTCP.Dispatcher
             public T mType;
             public ulong mHeaderID;
             public ulong mSentByID;
-            public byte[] mBytes;
+            public Memory<byte> mBytes;
+
+            public Span<byte> Span => mBytes.Span;
         }
 
         public SingleThreadServer()
         {
-            mServer = new Server();
+            mServer = new Server(16, false);
             mHook = new(mServer);
         }
 
@@ -40,7 +42,7 @@ namespace OverTCP.Dispatcher
 
         public void SendToAll(DataRequest request)
         {
-            SendToAll(request.mType, request.mBytes);
+            SendToAll(request.mType, request.Span);
         }
 
         public void SendToAll(T type, ReadOnlySpan<byte> data)
@@ -50,7 +52,7 @@ namespace OverTCP.Dispatcher
 
         public void SendTo(ulong destinationClientID, DataRequest request)
         {
-            SendTo(destinationClientID, request.mType, request.mBytes);
+            SendTo(destinationClientID, request.mType, request.Span);
         }
 
         public void SendTo(ulong destinationClientID, T type, ReadOnlySpan<byte> data)
@@ -60,7 +62,7 @@ namespace OverTCP.Dispatcher
 
         public void SendToAllBut(DataRequest request, params ulong[] exceptIDs)
         {
-            SendToAllBut(request.mType, request.mBytes, exceptIDs);
+            SendToAllBut(request.mType, request.Span, exceptIDs);
         }
 
         public void SendToAllBut(T type, ReadOnlySpan<byte> data, params ulong[] exceptIDs)

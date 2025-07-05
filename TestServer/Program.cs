@@ -8,19 +8,24 @@ namespace TestServer
 {
     internal class Program
     {
-        
+        static string mDirectoryPath = string.Empty;
+        static Server server;
+        static Program()
+        {
+            server = new();
+        }
         static void Main(string[] args)
         {
-            SingleThreadServer<Messages> server = new();
             server.Start(25566);
+            server.OnDataRecieved += Server_OnDataRecieved;
 
-            while (!server.HasConnectedClients)
+            while (server.ClientCount == 0)
                 Thread.Sleep(100);
 
-            void SendFileChunk(byte[] fileChunk, Managment.Partial partial, long bytesRead)
+            void SendFileChunk(ReadOnlySpan<byte> fileChunk, Managment.Partial partial, long bytesRead)
             {
-                Managment.SendFileChunk(server.Server, fileChunk);
-                Console.WriteLine(partial);
+                Managment.SendFileChunk(server, fileChunk);
+                Console.WriteLine(bytesRead);
             }
 
             while (true)
@@ -32,18 +37,30 @@ namespace TestServer
                 if (line.StartsWith('Q'))
                     break;
 
-                if (!File.Exists(line))
-                    continue;
+                if (File.Exists(line))
+                {
+                    Managment.SendSingleFile(line, SendFileChunk);
+                }
 
-
-                Managment.SendSingleFile(line, SendFileChunk);
+                if (Directory.Exists(line))
+                {
+                    var data = Managment.GetDirectoryData(line);
+                    mDirectoryPath = line;
+                }
             }
             server.Stop();
         }
 
-        private static void Server_OnDataRecieved(SingleThreadServer<Messages>.DataRequest request)
+        private static void Server_OnDataRecieved(ulong clientID, Memory<byte> data)
         {
-            Console.WriteLine(request.mType + "From: " + request.mSentByID);
+            Extract.Header(data.Span, out Messages message, out ulong _);
+            if (message == Messages.ReadyForFiles)
+            {
+                Managment.SendAllFiles(mDirectoryPath, (fileData, fileState, currentFileSize) =>
+                {
+                    Managment.SendFileChunkTo(server, fileData, clientID);
+                });
+            }
         }
     }
 }

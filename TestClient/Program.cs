@@ -27,7 +27,6 @@ namespace TestClient
 
             var directory = Directory.GetCurrentDirectory() + '\\';
 
-            FileStream? stream = null;
             while (true)
             {
                 if (client.AnyExceptions)
@@ -42,12 +41,16 @@ namespace TestClient
                 
                 foreach (var request in requests)
                 {
+                    if (request.mType == Messages.DirectoryData)
+                    {
+                        Managment.CreateDirectoriesFromData(directory, request.Span, (directory) => Managment.OnDirectoriesCreated(client.Client));
+                    }
+
                     if (request.mType == Messages.FileData)
                     {
-                        Managment.OnFileDataReceived(request.mBytes, directory, ref stream);
-                        Console.WriteLine((Managment.Partial)request.mBytes[0]);
+                        Console.WriteLine(Managment.OnFileDataReceived(request.Span, directory));                     
                     }
-                }
+                }                
             }
         }
     }

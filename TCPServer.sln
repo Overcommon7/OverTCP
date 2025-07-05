@@ -13,7 +13,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.Messaging", "OverTC
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.Dispatcher", "OverTCP.Dispatcher\OverTCP.Dispatcher.csproj", "{3164FFD5-C408-429B-BAAA-140D67FBD348}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.File", "FileBatching\OverTCP.File.csproj", "{28056860-261D-40E3-A486-417A6D78B0CE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OverTCP.File", "OverTCP.File\OverTCP.File.csproj", "{28056860-261D-40E3-A486-417A6D78B0CE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

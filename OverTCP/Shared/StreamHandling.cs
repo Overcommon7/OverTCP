@@ -8,9 +8,8 @@ namespace OverTCP
     internal static class StreamHandling
     {
         const int RETRIES_TILL_FAIL = 10;
-        internal static byte[] Read(NetworkStream stream, int count)
+        internal static void Read(NetworkStream stream, int count, byte[] buffer)
         {
-            byte[] buffer = new byte[count];
             int bytesRead = 0, retryCount = 0, rollingCount = count;
             while (true)
             {         
@@ -19,7 +18,7 @@ namespace OverTCP
                 rollingCount -= read;
 
                 if (bytesRead >= count)
-                    return buffer;
+                    return;
 
                 if (read < 1)
                     ++retryCount;

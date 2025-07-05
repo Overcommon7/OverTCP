@@ -1,5 +1,7 @@
 ﻿using OverTCP.Messaging;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 
 namespace OverTCP.Dispatcher
 {
@@ -36,10 +38,10 @@ namespace OverTCP.Dispatcher
                 mExceptions.Add(exception);
         }
 
-        private void Client_OnDataRecieved(byte[] data)
+        private void Client_OnDataRecieved(Memory<byte> data)
         {
             SingleThreadClient<T>.DataRequest request = new();
-            request.mBytes = Extract.All(data, out request.mType, out request.mHeaderID).ToArray();
+            request.mBytes = Extract.AllAsMemory(data, out request.mType, out request.mHeaderID);
             mRequests.Enqueue(request);
         }
 

@@ -13,7 +13,9 @@ namespace OverTCP.Dispatcher
         {
             public T mType;
             public ulong mHeaderID;
-            public byte[] mBytes;
+            public Memory<byte> mBytes;
+
+            public readonly Span<byte> Span => mBytes.Span;
         }
 
         Client mClient;
@@ -25,7 +27,7 @@ namespace OverTCP.Dispatcher
         
         public SingleThreadClient() 
         { 
-            mClient = new Client();
+            mClient = new Client(16, false);
             mHook = new(mClient);
         }
 
@@ -41,7 +43,7 @@ namespace OverTCP.Dispatcher
 
         public void SendData(DataRequest data)
         {
-            mClient.SendData(Create.Data(data.mType, data.mHeaderID, data.mBytes));
+            mClient.SendData(Create.Data(data.mType, data.mHeaderID, data.mBytes.Span));
         }
 
         public void SendData(T type, ReadOnlySpan<byte> bytes)
@@ -62,6 +64,7 @@ namespace OverTCP.Dispatcher
 
         public DataRequest[] GetDataRequests()
         {
+            mClient.FreeAllocatedArrays();
             return mHook.GetRequests();
         }
 

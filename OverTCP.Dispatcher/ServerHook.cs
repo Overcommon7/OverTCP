@@ -48,10 +48,10 @@ namespace OverTCP.Dispatcher
                 mErrors.Add(new(exception, clientID));
         }
 
-        private void Server_OnDataRecieved(ulong clientID, byte[] data)
+        private void Server_OnDataRecieved(ulong clientID, Memory<byte> data)
         {
             SingleThreadServer<T>.DataRequest request = new();
-            request.mBytes = Extract.All(data, out request.mType, out request.mHeaderID).ToArray();
+            request.mBytes = Extract.AllAsMemory(data, out request.mType, out request.mHeaderID);
             request.mSentByID = clientID;
             mRequests.Enqueue(request);
         }

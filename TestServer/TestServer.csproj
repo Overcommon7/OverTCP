@@ -8,8 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\FileBatching\OverTCP.File.csproj" />
     <ProjectReference Include="..\OverTCP.Dispatcher\OverTCP.Dispatcher.csproj" />
+    <ProjectReference Include="..\OverTCP.File\OverTCP.File.csproj" />
   </ItemGroup>
 
 </Project>
