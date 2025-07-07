@@ -24,6 +24,7 @@ namespace OverTCP.Dispatcher
 
         public bool AnyExceptions => mHook.HasExceptions;
         public bool DidReconnect => mHook.DidReconnect;
+        public ulong ID => mClient.ID;
         
         public SingleThreadClient() 
         { 

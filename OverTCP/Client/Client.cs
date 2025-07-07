@@ -144,6 +144,7 @@ namespace OverTCP
             if (mAutomaticMemoryManagement)
                 FreeAllocatedArrays();
 
+
             while (true)
             {
                 var values = IncomingDataHandler.HandleFromClient(TCPClient, out var data, out var exception);
@@ -154,7 +155,6 @@ namespace OverTCP
                         mRentedArrays.Add(data);
                 }
                     
-
                 if (values.mReadCode == ReadCode.AllDataRead)
                     break;
 

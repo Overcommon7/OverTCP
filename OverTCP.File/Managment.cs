@@ -1,9 +1,7 @@
 ﻿using OverTCP;
 using OverTCP.Messaging;
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Security.Cryptography;
 
 namespace OverTCP.File
 {
@@ -11,6 +9,7 @@ namespace OverTCP.File
     {
         public delegate void FileChunkSent(ReadOnlySpan<byte> fileData, Partial fileState, long currentFileSize);
         static List<(ulong mHash, FileStream mStream)> sFileStreams = [];
+        static List<(ulong mHash, AsyncPauseToken mToken)> sPauseTokens = [];
         const int HEADER_SIZE = sizeof(byte) + sizeof(ulong);
         public enum Partial : byte
         {
@@ -37,19 +36,22 @@ namespace OverTCP.File
             if (stream is null)
             {
                 stream = new FileStream(directory + relativePath.Value, FileMode.Create, FileAccess.Write);
-                sFileStreams.Add((fileHash, stream));
+                lock (sFileStreams)
+                    sFileStreams.Add((fileHash, stream));
             }
             return stream;
         }
 
         static FileStream? GetStream(ulong fileHash)
         {
-            Log.Message("Hash: " + fileHash);
-            var index = sFileStreams.FindIndex(value => value.mHash == fileHash);
-            if (index == -1)
-                return null;
+            lock (sFileStreams)
+            {
+                var index = sFileStreams.FindIndex(value => value.mHash == fileHash);
+                if (index == -1)
+                    return null;
 
-            return sFileStreams[index].mStream;
+                return sFileStreams[index].mStream;
+            }            
         }
 
         static void CloseStream(FixedString_128 relativePath)
@@ -60,12 +62,15 @@ namespace OverTCP.File
 
         static void CloseStream(ulong fileHash)
         {
-            var index = sFileStreams.FindIndex(value => value.mHash == fileHash);
-            if (index == -1)
-                return;
+            lock (sFileStreams)
+            {
+                var index = sFileStreams.FindIndex(value => value.mHash == fileHash);
+                if (index == -1)
+                    return;
 
-            sFileStreams[index].mStream.Close();
-            sFileStreams.RemoveAt(index);
+                sFileStreams[index].mStream.Close(); 
+                sFileStreams.RemoveAt(index);
+            }               
         }
 
         public static ReadOnlySpan<byte> GetDirectoryData(string directory)
@@ -86,7 +91,7 @@ namespace OverTCP.File
             return Format.StructArrayToData(mDirectoryData);
         }
 
-        public static void CreateDirectoriesFromData(string directory, ReadOnlySpan<byte> directoryData, Action<string> OnRootDirectoryCreated)
+        public static void CreateDirectoriesFromData(string directory, ReadOnlySpan<byte> directoryData, Action<string>? OnDirectoriesCreated = null)
         {
             directory = Path.GetFullPath(directory);
             if (directory.EndsWith('/'))
@@ -98,21 +103,22 @@ namespace OverTCP.File
             if (directories.Length == 0)
                 return;
 
-            string root = directory + Path.GetFileName(directories[0]) + '\\';
+            string root = directory + new DirectoryInfo(directories[0].Value).Name + '\\';
 
             if (Directory.Exists(root))
                 Directory.Delete(root, true);
 
             Directory.CreateDirectory(root);
-            OnRootDirectoryCreated(root);
 
             for (int i = 1; i < directories.Length; i++)
             {
                 Directory.CreateDirectory(root + directories[i]);
             }
+
+            OnDirectoriesCreated?.Invoke(root);
         }
 
-        public static void SendAllFiles(string directory, FileChunkSent SendFileChunk, Action<long>? OnDirectorySize = null)
+        public static async void SendAllFiles(string directory, FileChunkSent SendFileChunk, Action<string>? OnDirectoryComplete = null, Action<long>? OnDirectorySize = null, Action? OnFileError = null)
         {
             if (!Directory.Exists(directory))
                 return;
@@ -128,28 +134,41 @@ namespace OverTCP.File
                 OnDirectorySize.Invoke(totalSize);
             }
 
-
             foreach (var entry in files)
-                SendSingleFile(entry, SendFileChunk, directory);
+            {
+                bool result = await SendSingleFile_Internal(entry, SendFileChunk, directory, OnFileError);
+                if (!result) return;
+            }
+
+            OnDirectoryComplete?.Invoke(new DirectoryInfo(directory).Name);
         }
 
-        public static bool SendSingleFile(string filepath, FileChunkSent SendFileChunk, string? root = null)
+        public static async void SendSingleFile(string filepath, FileChunkSent SendFileChunk, string? root = null, Action? OnError = null)
         {
+            _ = await SendSingleFile_Internal(filepath, SendFileChunk, root, OnError);
+        }
+
+        static async Task<bool> SendSingleFile_Internal(string filepath, FileChunkSent SendFileChunk, string? root = null, Action? OnError = null)
+        {
+            FixedString_128 filename = new();
+            if (string.IsNullOrEmpty(root))
+                filename = Path.GetFileName(filepath);
+            else
+                filename = Path.GetRelativePath(root, filepath);
+
+            ulong fileHash = ClientExtenstions.HashString(filename.Value);
+            var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024 * 4); // 4MB;
+
+            FileStream? fileStream = null;
             try
             {
-                var fileStream = System.IO.File.OpenRead(filepath);
-
-                var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024 * 4); // 4MB;
+                fileStream = System.IO.File.OpenRead(filepath);
                 long bytesRead = 0;
 
-                FixedString_128 filename = new();
-                if (string.IsNullOrEmpty(root))
-                    filename = Path.GetFileName(filepath);
-                else
-                    filename = Path.GetRelativePath(root, filepath);
-
-                ulong fileHash = ClientExtenstions.HashString(filename.Value);
-
+                AsyncPauseToken pauseToken = new();
+                lock (sPauseTokens)
+                    sPauseTokens.Add((fileHash, pauseToken));
+                   
                 while (true)
                 {
                     var fileInfo = GetFileData(filename, fileStream, ref buffer, fileHash);
@@ -157,6 +176,8 @@ namespace OverTCP.File
                         return false;
 
                     bytesRead += fileInfo.bytesRead;
+                    await pauseToken.WaitIfPausedAsync();
+
                     if (fileInfo.bufferSize != buffer.Length)
                         SendFileChunk.Invoke(buffer.AsSpan(0, fileInfo.bufferSize), fileInfo.fileState, bytesRead);
                     else
@@ -165,21 +186,63 @@ namespace OverTCP.File
                     if (fileInfo.fileState == Partial.EntireFile || fileInfo.fileState == Partial.EndOfFile)
                         break;
                 }
-                ArrayPool<byte>.Shared.Return(buffer, true);
+                lock (sPauseTokens)
+                {
+                    int index = sPauseTokens.FindIndex(lockData => lockData.mHash == fileHash);
+                    if (index != -1)
+                        sPauseTokens.RemoveAt(index);
+                }                
 
                 return true;
             }
             catch (Exception ex)
             {
                 Log.Error(ex.Message);
+                OnError?.Invoke();
                 return false;
+            }
+            finally
+            {
+                lock (sPauseTokens)
+                {
+                    int index = sPauseTokens.FindIndex(lockData => lockData.mHash == fileHash);
+                    if (index != -1)
+                        sPauseTokens.RemoveAt(index);
+                }
+
+                fileStream?.Close();
+                ArrayPool<byte>.Shared.Return(buffer, true);
             }
         }
 
-        public static RecievingState OnFileDataReceived(ReadOnlySpan<byte> fileData, string directory)
+        public static void PauseFileSending(ulong fileHash)
+        {
+            lock (sPauseTokens)
+            {
+                int index = sPauseTokens.FindIndex(tokenData => tokenData.mHash == fileHash);
+                if (index == -1)
+                    return;
+
+                sPauseTokens[index].mToken.Pause();
+            }           
+        }
+
+        public static void ResumeFileSending(ulong fileHash)
+        {
+            lock (sPauseTokens)
+            {
+                int index = sPauseTokens.FindIndex(tokenData => tokenData.mHash == fileHash);
+                if (index == -1)
+                    return;
+
+                sPauseTokens[index].mToken.Resume();
+            }
+        }
+
+        public static (RecievingState mState, ulong mFileHash) OnFileDataReceived(ReadOnlySpan<byte> fileData, string directory)
         {
             if (fileData.IsEmpty)
-                return RecievingState.Error;
+                return (RecievingState.Error, ulong.MaxValue);
 
             var partial = fileData[0];
             ReadOnlySpan<byte> buffer;
@@ -191,7 +254,7 @@ namespace OverTCP.File
                     if (!Format.ToStruct(fileData.Slice(1, FixedString_128.Size), out FixedString_128 relativePath))
                     {
                         Log.Error("Could Not Parse Filename");
-                        return RecievingState.Error;
+                        return (RecievingState.Error, ulong.MaxValue);
                     }
 
                     buffer = fileData.Slice(FixedString_128.Size + 1);
@@ -200,7 +263,7 @@ namespace OverTCP.File
                 else
                 {
                     if (!Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out ulong hash))
-                        return RecievingState.Error;
+                        return (RecievingState.Error, ulong.MaxValue);
 
                     stream = GetStream(hash);
                     buffer = fileData.Slice(HEADER_SIZE);
@@ -209,7 +272,7 @@ namespace OverTCP.File
                 if (stream is null)
                 {
                     Log.Error("Passed A Null File Stream When File Packet Sent");
-                    return RecievingState.Error;
+                    return (RecievingState.Error, ulong.MaxValue);
                 }
 
                 stream.Write(buffer);
@@ -217,23 +280,27 @@ namespace OverTCP.File
                 if (partial == (byte)Partial.EntireFile)
                 {
                     _ = Format.ToStruct(fileData.Slice(1, FixedString_128.Size), out FixedString_128 relativePath);
-                    CloseStream(relativePath);
-                    return RecievingState.Complete;
+                    ulong hash = ClientExtenstions.HashString(relativePath.Value);
+                    CloseStream(hash);
+                    return (RecievingState.Complete, hash);
                 }
 
                 if (partial == (byte)Partial.EndOfFile)
                 {
                     _ = Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out ulong hash);
                     CloseStream(hash);
-                    return RecievingState.Complete;
+                    return (RecievingState.Complete, hash);
                 }
 
-                return RecievingState.InProgress;
+                if (!Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out ulong fileHash))
+                    return (RecievingState.Error, ulong.MaxValue);
+
+                return (RecievingState.InProgress, fileHash);     
             }
             catch (Exception ex)
             {
                 Log.Error(ex.Message);
-                return RecievingState.Error;
+                return (RecievingState.Error, ulong.MaxValue);
             }
         }
 

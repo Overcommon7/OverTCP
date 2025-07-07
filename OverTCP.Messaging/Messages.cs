@@ -11,6 +11,9 @@ namespace OverTCP.Messaging
         DirectoryData,
         FileCount,
         ReadyForFiles, 
-        FileDataError
+        FileDataError,
+        PauseFileChunks,
+        ResumeFileChunks,
+        DirectoryTransferComplete
     }
 }

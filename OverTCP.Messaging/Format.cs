@@ -6,6 +6,7 @@ namespace OverTCP.Messaging
 {
     public static class Format
     {
+        static ThreadLocal<byte[]> sCombineArray = new ThreadLocal<byte[]>();
         public static bool ToStruct<T>(ReadOnlySpan<byte> bytes, out T value) where T : unmanaged
         {
             try
@@ -158,13 +159,25 @@ namespace OverTCP.Messaging
             return result;
         }
 
-        public static byte[] Combine(ReadOnlySpan<byte> data_1, ReadOnlySpan<byte> data_2)
-        {
-            byte[] data = new byte[data_1.Length + data_2.Length];
-            Span<byte> dataSpan = new Span<byte>(data);
-            data_1.CopyTo(dataSpan.Slice(0, data_1.Length));
-            data_2.CopyTo(dataSpan.Slice(data_1.Length));
-            return data;
+        public static ReadOnlySpan<byte> Combine(ReadOnlySpan<byte> data_1, ReadOnlySpan<byte> data_2)
+        {      
+            if (!sCombineArray.IsValueCreated || sCombineArray.Value is null)
+            {
+                sCombineArray.Value = new byte[1024 * 1024 * 5];
+            }
+
+            int length = data_1.Length + data_2.Length;
+            if (sCombineArray.Value.Length < length)
+            {
+                var temp = sCombineArray.Value;
+                Array.Resize(ref temp, data_1.Length + data_2.Length);
+                sCombineArray.Value = temp;
+            }
+
+            var buffer = sCombineArray.Value.AsSpan(0, length);
+            data_1.CopyTo(buffer.Slice(0, data_1.Length));
+            data_2.CopyTo(buffer.Slice(data_1.Length));
+            return buffer;
         }
     }
 }
