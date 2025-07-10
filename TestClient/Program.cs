@@ -26,7 +26,8 @@ namespace TestClient
             }
 
             var directory = Directory.GetCurrentDirectory() + '\\';
-
+            int count = 0;
+            long size = 0;
             while (true)
             {
                 if (client.AnyExceptions)
@@ -38,17 +39,28 @@ namespace TestClient
                 }
 
                 var requests = client.GetDataRequests();
-                
+
                 foreach (var request in requests)
                 {
                     if (request.mType == Messages.DirectoryData)
                     {
-                        Managment.CreateDirectoriesFromData(directory, request.Span, (directory) => Managment.OnDirectoriesCreated(client.Client));
+                        Managment.CreateDirectoriesFromData(directory, request.Span, client.Client);
                     }
 
                     if (request.mType == Messages.FileData)
                     {
-                        Console.WriteLine(Managment.OnFileDataReceived(request.Span, directory));                     
+                        ++count;
+                        size += request.mBytes.Length;
+
+                        var values = Managment.OnFileDataReceived(request.Span, directory, client.Client);
+                        if (count > 100)
+                        {
+                            Console.WriteLine("Size: " + size);
+                            count = 0;
+                        }                            
+
+                        if (values.mState == Managment.RecievingState.Complete)
+                            Console.WriteLine(values);
                     }
                 }                
             }

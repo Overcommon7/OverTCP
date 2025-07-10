@@ -45,7 +45,7 @@ namespace OverTCP.Dispatcher
             mRequests.Enqueue(request);
         }
 
-        internal SingleThreadClient<T>.DataRequest[] GetRequests()
+        internal SingleThreadClient<T>.DataRequest[]  GetRequests()
         {
             mReconnected = false;
             if (mRequests.Count == 0)

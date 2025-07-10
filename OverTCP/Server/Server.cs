@@ -123,6 +123,14 @@ namespace OverTCP
                 OnErrorThrown_Write?.Invoke(clientID, exception);
         }
 
+        public void SendToSpecific(ReadOnlySpan<byte> data, params ulong[] clientIDs)
+        {
+            for (int i = 0; i < clientIDs.Length; ++i)
+            {
+                SendTo(clientIDs[i], data);
+            }
+        }
+
         public void SendToAll(ReadOnlySpan<byte> data)
         {
             for (int i = 0; i < mClients.Count; ++i)

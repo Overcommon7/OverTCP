@@ -1,17 +1,35 @@
 ﻿using OverTCP;
 using OverTCP.Messaging;
+using System;
 using System.Buffers;
 using System.IO;
+using System.Reflection;
+using static OverTCP.File.Managment;
 
 namespace OverTCP.File
 {
     public static class Managment
     {
-        public delegate void FileChunkSent(ReadOnlySpan<byte> fileData, Partial fileState, long currentFileSize);
-        static List<(ulong mHash, FileStream mStream)> sFileStreams = [];
+        class InternalValues()
+        {
+            public FileStream? mStream = null;
+            public Task mTask = Task.CompletedTask;
+            public long mSize = 0;
+            public int mIsPaused = 0;
+        }
+
+        public readonly struct FileChunkData(FileState state, int chunkSize, long currentSize, long totalSize)
+        {
+            public readonly FileState mState = state;
+            public readonly int mChunkSize = chunkSize;
+            public readonly long mCurrentSizeOfFile = currentSize;
+            public readonly long mTotalFileSize = totalSize;
+        }
+
+        static List<(ulong mHash, InternalValues mValues)> sFileStreams = [];
         static List<(ulong mHash, AsyncPauseToken mToken)> sPauseTokens = [];
         const int HEADER_SIZE = sizeof(byte) + sizeof(ulong);
-        public enum Partial : byte
+        public enum FileState : byte
         {
             ERROR = 255,
 
@@ -29,30 +47,33 @@ namespace OverTCP.File
             Complete = 1,
         }
 
-        static FileStream GetStream(string? directory, FixedString_128 relativePath)
+        static InternalValues GetStream(string? directory, FixedString_128 relativePath)
         {
             ulong fileHash = ClientExtenstions.HashString(relativePath.Value);
-            var stream = GetStream(fileHash);
-            if (stream is null)
+            var values = GetInternalValues(fileHash);
+            if (values.mStream is null)
             {
-                stream = new FileStream(directory + relativePath.Value, FileMode.Create, FileAccess.Write);
+                values.mStream = new FileStream(directory + relativePath.Value, FileMode.Create, FileAccess.Write, FileShare.None);
                 lock (sFileStreams)
-                    sFileStreams.Add((fileHash, stream));
+                    sFileStreams.Add((fileHash, values));
             }
-            return stream;
+
+            return values;
         }
 
-        static FileStream? GetStream(ulong fileHash)
+#nullable disable
+        static InternalValues GetInternalValues(ulong fileHash)
         {
             lock (sFileStreams)
             {
                 var index = sFileStreams.FindIndex(value => value.mHash == fileHash);
                 if (index == -1)
-                    return null;
+                    return new();
 
-                return sFileStreams[index].mStream;
+                return sFileStreams[index].Item2;
             }            
         }
+#nullable enable
 
         static void CloseStream(FixedString_128 relativePath)
         {
@@ -60,23 +81,28 @@ namespace OverTCP.File
             CloseStream(fileHash);
         }
 
-        static void CloseStream(ulong fileHash)
+        static async void CloseStream(ulong fileHash)
         {
+            int index = -1;
+
             lock (sFileStreams)
             {
-                var index = sFileStreams.FindIndex(value => value.mHash == fileHash);
+                index = sFileStreams.FindIndex(value => value.mHash == fileHash);
                 if (index == -1)
                     return;
+            }
 
-                sFileStreams[index].mStream.Close(); 
+            await sFileStreams[index].mValues.mTask;
+            sFileStreams[index].mValues.mStream?.Close();
+
+            lock (sFileStreams)
                 sFileStreams.RemoveAt(index);
-            }               
         }
 
         public static ReadOnlySpan<byte> GetDirectoryData(string directory)
         {
             if (!Directory.Exists(directory))
-                return [];
+                return ReadOnlySpan<byte>.Empty;
 
             var directories = Directory.GetDirectories(directory, "*", SearchOption.AllDirectories);
             FixedString_128[] mDirectoryData = new FixedString_128[directories.Length + 1];
@@ -91,7 +117,8 @@ namespace OverTCP.File
             return Format.StructArrayToData(mDirectoryData);
         }
 
-        public static void CreateDirectoriesFromData(string directory, ReadOnlySpan<byte> directoryData, Action<string>? OnDirectoriesCreated = null)
+        public static void CreateDirectoriesFromData<T>(string directory, Span<byte> entireDataPacket, T clientOrServer, ulong? sendingTo = null, Action<string>? OnDirectoriesCreated = null)
+            where T : class
         {
             directory = Path.GetFullPath(directory);
             if (directory.EndsWith('/'))
@@ -99,10 +126,21 @@ namespace OverTCP.File
             if (!directory.EndsWith('\\'))
                 directory += '\\';
 
+            var directoryData = Extract.All(entireDataPacket, out Messages message, out ulong directoryHash);
+
+            if (message != Messages.DirectoryData)
+            {
+                Log.Error("Passed In Data Packet That Was Not Directory Data: " + message);
+                return;
+            }
+
             var directories = Format.DataToStructArray<FixedString_128>(directoryData);
             if (directories.Length == 0)
+            {
+                Log.Error("Directory Data Was Empty");
                 return;
-
+            }
+                
             string root = directory + new DirectoryInfo(directories[0].Value).Name + '\\';
 
             if (Directory.Exists(root))
@@ -115,13 +153,56 @@ namespace OverTCP.File
                 Directory.CreateDirectory(root + directories[i]);
             }
 
+            Managment.OnDirectoriesCreated(directoryHash, clientOrServer, sendingTo);
             OnDirectoriesCreated?.Invoke(root);
         }
 
-        public static async void SendAllFiles(string directory, FileChunkSent SendFileChunk, Action<string>? OnDirectoryComplete = null, Action<long>? OnDirectorySize = null, Action? OnFileError = null)
+        public static async void SendAllFiles<T>(string directory, T serverOrClient, ulong? sendingTo, Action<FileChunkData>? OnChunkSent,
+            Action<T, string, ulong>? OnDirectoryComplete = null, Action<T, long, ulong>? OnDirectorySize = null, Action? OnFileError = null)
+            where T : class
         {
             if (!Directory.Exists(directory))
                 return;
+
+            var directoryName = new DirectoryInfo(directory).FullName;
+            ulong directoryHash = ClientExtenstions.HashString(directoryName);
+            AsyncPauseToken pauseToken = new();
+
+            void OnClientData(Memory<byte> data)
+            {
+                var messageData = Extract.AllAsMemory(data, out Messages message, out ulong hash);
+                if (hash != directoryHash)
+                    return;
+
+                if (message == Messages.ReadyForFiles)
+                    pauseToken.Resume();
+            }
+
+            void OnServerData(ulong clientID, Memory<byte> data)
+            {
+                OnClientData(data);
+            }
+
+            var directoryData = GetDirectoryData(directory).ToArray();
+
+            {
+                if (serverOrClient is Server server)
+                    server.OnDataRecieved += OnServerData;
+                else if (serverOrClient is Client client)
+                    client.OnDataRecieved += OnClientData;
+            }
+           
+            pauseToken.Pause();
+            SendDirectoryData(directoryData, directoryHash, serverOrClient, sendingTo);
+            await pauseToken.WaitIfPausedAsync();
+
+            {
+                if (serverOrClient is Server server)
+                    server.OnDataRecieved -= OnServerData;
+                else if (serverOrClient is Client client)
+                    client.OnDataRecieved -= OnClientData;
+            }
+            
 
             var files = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories);
 
@@ -131,24 +212,30 @@ namespace OverTCP.File
                 foreach (var file in files)
                     totalSize += new FileInfo(file).Length;
 
-                OnDirectorySize.Invoke(totalSize);
+                OnDirectorySize.Invoke(serverOrClient, totalSize, directoryHash);
             }
 
             foreach (var entry in files)
             {
-                bool result = await SendSingleFile_Internal(entry, SendFileChunk, directory, OnFileError);
+                bool result = await SendSingleFile_Internal(entry, serverOrClient, sendingTo, OnChunkSent, directory, OnFileError);
                 if (!result) return;
             }
-
-            OnDirectoryComplete?.Invoke(new DirectoryInfo(directory).Name);
+            
+            OnDirectoryComplete?.Invoke(serverOrClient, directoryName, directoryHash);
         }
 
-        public static async void SendSingleFile(string filepath, FileChunkSent SendFileChunk, string? root = null, Action? OnError = null)
+        public static void SendSingleFile<T>(string filepath, T serverOrClient, ulong? sendingTo = null, string? root = null, Action<FileChunkData>? OnChunkSent = null, Action? OnError = null) where T : class
         {
-            _ = await SendSingleFile_Internal(filepath, SendFileChunk, root, OnError);
+            if (serverOrClient is not Client or Server)
+            {
+                Log.Error("Passed In Non-Server/Client Object Into Send File Function: " + serverOrClient?.GetType().Name);
+                return;
+            }
+            _ = SendSingleFile_Internal(filepath, serverOrClient, sendingTo, OnChunkSent, root, OnError);
         }
 
-        static async Task<bool> SendSingleFile_Internal(string filepath, FileChunkSent SendFileChunk, string? root = null, Action? OnError = null)
+        static async Task<bool> SendSingleFile_Internal<T>(string filepath, T serverOrClient, ulong? sendingTo, Action<FileChunkData>? OnChunkSent, 
+            string? root = null, Action? OnError = null) where T : class
         {
             FixedString_128 filename = new();
             if (string.IsNullOrEmpty(root))
@@ -160,6 +247,32 @@ namespace OverTCP.File
             var buffer = ArrayPool<byte>.Shared.Rent(1024 * 1024 * 4); // 4MB;
 
             FileStream? fileStream = null;
+
+            void OnClientData(Memory<byte> data)
+            {
+                Extract.Header(data.Span, out Messages message, out ulong hash);
+
+                if (hash != fileHash)
+                    return;
+
+                if (message == Messages.PauseFileChunks)
+                    PauseFileSending(fileHash);
+                if (message == Messages.ResumeFileChunks)
+                    ResumeFileSending(fileHash);
+            }
+
+            void OnServerData(ulong id, Memory<byte> data)
+            {
+                OnClientData(data);
+            }
+
+            {
+                if (serverOrClient is Client client)
+                    client.OnDataRecieved += OnClientData;
+                if (serverOrClient is Server server)
+                    server.OnDataRecieved += OnServerData;
+            }           
+
             try
             {
                 fileStream = System.IO.File.OpenRead(filepath);
@@ -168,22 +281,29 @@ namespace OverTCP.File
                 AsyncPauseToken pauseToken = new();
                 lock (sPauseTokens)
                     sPauseTokens.Add((fileHash, pauseToken));
-                   
+
+                long totalLength = fileStream.Length;
                 while (true)
                 {
                     var fileInfo = GetFileData(filename, fileStream, ref buffer, fileHash);
-                    if (fileInfo.fileState == Partial.ERROR)
+                    if (fileInfo.fileState == FileState.ERROR)
                         return false;
 
                     bytesRead += fileInfo.bytesRead;
                     await pauseToken.WaitIfPausedAsync();
 
                     if (fileInfo.bufferSize != buffer.Length)
-                        SendFileChunk.Invoke(buffer.AsSpan(0, fileInfo.bufferSize), fileInfo.fileState, bytesRead);
+                        SendFileChunk(serverOrClient, buffer.AsSpan(0, fileInfo.bufferSize), sendingTo);
                     else
-                        SendFileChunk.Invoke(buffer, fileInfo.fileState, bytesRead);
+                        SendFileChunk(serverOrClient, buffer, sendingTo);
 
-                    if (fileInfo.fileState == Partial.EntireFile || fileInfo.fileState == Partial.EndOfFile)
+                    if (OnChunkSent is not null)
+                    {
+                        FileChunkData data = new(fileInfo.fileState, fileInfo.bytesRead, bytesRead, totalLength);
+                        OnChunkSent.Invoke(data);
+                    }
+                    
+                    if (fileInfo.fileState == FileState.EntireFile || fileInfo.fileState == FileState.EndOfFile)
                         break;
                 }
                 lock (sPauseTokens)
@@ -212,6 +332,11 @@ namespace OverTCP.File
 
                 fileStream?.Close();
                 ArrayPool<byte>.Shared.Return(buffer, true);
+
+                if (serverOrClient is Client client)
+                    client.OnDataRecieved -= OnClientData;
+                if (serverOrClient is Server server)
+                    server.OnDataRecieved -= OnServerData;
             }
         }
 
@@ -224,7 +349,9 @@ namespace OverTCP.File
                     return;
 
                 sPauseTokens[index].mToken.Pause();
-            }           
+            } 
+            
+            Log.Message("Paused Sending: " + fileHash);
         }
 
         public static void ResumeFileSending(ulong fileHash)
@@ -237,19 +364,28 @@ namespace OverTCP.File
 
                 sPauseTokens[index].mToken.Resume();
             }
+
+            Log.Message("Resumed Sending: " + fileHash);
         }
 
-        public static (RecievingState mState, ulong mFileHash) OnFileDataReceived(ReadOnlySpan<byte> fileData, string directory)
+        public static (RecievingState mState, ulong mFileHash) OnFileDataReceived<T>(ReadOnlySpan<byte> fileData, string directory, T clientOrServer, ulong? receivingFrom = null) where T : class
         {
+            if (clientOrServer is not Client or Server)
+            {
+                Log.Error("Passed In Invalid Client Or Server Object");
+                return (RecievingState.Error, ulong.MaxValue);
+            }
+
             if (fileData.IsEmpty)
                 return (RecievingState.Error, ulong.MaxValue);
 
             var partial = fileData[0];
             ReadOnlySpan<byte> buffer;
-            FileStream? stream = null;
+            InternalValues values;
+            ulong fileHash;
             try
             {
-                if (partial == (byte)Partial.EntireFile || partial == (byte)Partial.StartOfFile)
+                if (partial == (byte)FileState.EntireFile || partial == (byte)FileState.StartOfFile)
                 {
                     if (!Format.ToStruct(fileData.Slice(1, FixedString_128.Size), out FixedString_128 relativePath))
                     {
@@ -258,42 +394,103 @@ namespace OverTCP.File
                     }
 
                     buffer = fileData.Slice(FixedString_128.Size + 1);
-                    stream = GetStream(directory, relativePath);
+                    values = GetStream(directory, relativePath);
+                    fileHash = ClientExtenstions.HashString(relativePath.Value);
+                    Console.WriteLine(fileHash);
                 }
                 else
                 {
-                    if (!Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out ulong hash))
+                    if (!Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out fileHash))
                         return (RecievingState.Error, ulong.MaxValue);
 
-                    stream = GetStream(hash);
+                    values = GetInternalValues(fileHash);
                     buffer = fileData.Slice(HEADER_SIZE);
                 }
 
-                if (stream is null)
+                if (values.mStream is null)
                 {
                     Log.Error("Passed A Null File Stream When File Packet Sent");
                     return (RecievingState.Error, ulong.MaxValue);
                 }
 
-                stream.Write(buffer);
+                int length = buffer.Length;
+                Interlocked.Add(ref values.mSize, length);
 
-                if (partial == (byte)Partial.EntireFile)
+                void ResumeFileSending()
                 {
-                    _ = Format.ToStruct(fileData.Slice(1, FixedString_128.Size), out FixedString_128 relativePath);
-                    ulong hash = ClientExtenstions.HashString(relativePath.Value);
-                    CloseStream(hash);
-                    return (RecievingState.Complete, hash);
+                    if (clientOrServer is Server server)
+                    {
+                        if (receivingFrom is not null)
+                            server.SendTo(receivingFrom.Value, Header.CreateHeader(Messages.ResumeFileChunks, fileHash));
+                        else
+                            server.SendToAll(Header.CreateHeader(Messages.ResumeFileChunks, fileHash));
+                    }
+                    else if (clientOrServer is Client client)
+                    {
+                        client.SendData(Header.CreateHeader(Messages.ResumeFileChunks, fileHash));
+                    }
+
+                    Log.Message("Resumed Receiving: " + fileHash);
                 }
 
-                if (partial == (byte)Partial.EndOfFile)
+                var rentedBuffer = ArrayPool<byte>.Shared.Rent(length);
+                buffer.CopyTo(rentedBuffer);
+
+                values.mTask = values.mTask.ContinueWith(_ => {
+                    
+                    if (values.mSize > int.MaxValue / 2 && values.mIsPaused == 0)
+                    {
+                        Interlocked.Exchange(ref values.mIsPaused, 1);
+                        if (clientOrServer is Server server)
+                        {
+                            if (receivingFrom is not null)
+                                server.SendTo(receivingFrom.Value, Header.CreateHeader(Messages.PauseFileChunks, fileHash));
+                            else
+                                server.SendToAll(Header.CreateHeader(Messages.PauseFileChunks, fileHash));
+                        }
+                        else if (clientOrServer is Client client)
+                        {
+                            client.SendData(Header.CreateHeader(Messages.PauseFileChunks, fileHash));
+                        }
+                         
+                        Log.Message("Paused Receiving: " + fileHash);
+                    }
+
+                    return values.mStream.WriteAsync(rentedBuffer, 0, length)
+                        .ContinueWith(writeTask => {
+
+                            ArrayPool<byte>.Shared.Return(rentedBuffer);
+                            Interlocked.Add(ref values.mSize, -length);
+
+                            if (values.mSize <= (10 * 1024 * 1024) /*10 MB*/ && values.mIsPaused > 0)
+                            {
+                                Interlocked.Exchange(ref values.mIsPaused, 0);
+                                ResumeFileSending();
+                            }
+
+                            if (writeTask.IsFaulted)
+                                throw writeTask.Exception!;
+
+                        }, TaskScheduler.Default);
+
+                }, TaskScheduler.Default).Unwrap();
+
+                if (partial == (byte)FileState.EntireFile)
                 {
-                    _ = Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out ulong hash);
-                    CloseStream(hash);
-                    return (RecievingState.Complete, hash);
+                    CloseStream(fileHash);
+                    return (RecievingState.Complete, fileHash);
                 }
 
-                if (!Format.ToStruct(fileData.Slice(sizeof(byte), sizeof(ulong)), out ulong fileHash))
-                    return (RecievingState.Error, ulong.MaxValue);
+                if (partial == (byte)FileState.StartOfFile)
+                {
+                    return (RecievingState.InProgress, fileHash);
+                }
+
+                if (partial == (byte)FileState.EndOfFile)
+                {
+                    CloseStream(fileHash);
+                    return (RecievingState.Complete, fileHash);
+                }
 
                 return (RecievingState.InProgress, fileHash);     
             }
@@ -304,15 +501,15 @@ namespace OverTCP.File
             }
         }
 
-        public static (Partial fileState, int bytesRead, int bufferSize) GetFileData(FixedString_128 filename, FileStream stream, ref byte[] buffer, ulong fileHash)
+        public static (FileState fileState, int bytesRead, int bufferSize) GetFileData(FixedString_128 filename, FileStream stream, ref byte[] buffer, ulong fileHash)
         {
-            buffer[0] = (byte)Partial.FileSegment;
+            buffer[0] = (byte)FileState.FileSegment;
             int index = 1;
             try
             {
                 if (stream.Position == 0)
                 {
-                    buffer[0] = (byte)Partial.StartOfFile;
+                    buffer[0] = (byte)FileState.StartOfFile;
                     filename.Bytes.CopyTo(buffer.AsSpan().Slice(1, FixedString_128.Size));
                     index += FixedString_128.Size;
                 }
@@ -326,61 +523,77 @@ namespace OverTCP.File
                 int bytesRead = stream.Read(buffer, index, count);
                 if (stream.Position == stream.Length)
                 {
-                    if (buffer[0] == (byte)Partial.StartOfFile)
-                        buffer[0] = (byte)Partial.EntireFile;
+                    if (buffer[0] == (byte)FileState.StartOfFile)
+                        buffer[0] = (byte)FileState.EntireFile;
                     else
-                        buffer[0] = (byte)Partial.EndOfFile;
+                        buffer[0] = (byte)FileState.EndOfFile;
                 }
 
-                return ((Partial)buffer[0], bytesRead, bytesRead + index);
+                return ((FileState)buffer[0], bytesRead, bytesRead + index);
             }
             catch (Exception ex)
             {
 
                 Log.Error(ex.Message);
-                return (Partial.ERROR, 0, 0);
+                return (FileState.ERROR, 0, 0);
             }
         }
 
-        static FileStream? FromData(string directory, ReadOnlySpan<byte> data)
+        public static void SendFileChunk<T>(T serverOrClient, ReadOnlySpan<byte> fileChunk, ulong? sendingTo)
         {
-            if (!Format.ToStruct(data.Slice(0, FixedString_64.Size), out FixedString_64 filename))
-                return null;
-
-            var fileData = data.Slice(FixedString_64.Size).ToArray();
-
-            if (!Directory.Exists(directory))
-                Directory.CreateDirectory(directory);
-
-            var path = directory + '\\' + filename;
-            var stream = new FileStream(path, FileMode.Create, FileAccess.ReadWrite);
-            stream.Write(fileData);
-            return stream;
+            if (serverOrClient is Server server)
+            {
+                if (sendingTo.HasValue)
+                    server.SendTo(sendingTo.Value, Create.Data(Messages.FileData, Header.ALL_ULONG_ID, fileChunk));
+                else
+                    server.SendToAll(Create.Data(Messages.FileData, Header.ALL_ULONG_ID, fileChunk));
+            }
+            else if (serverOrClient is Client client)
+            {
+                client.SendData(Create.Data(Messages.FileData, client.ID, fileChunk));
+            }
+            else
+            {
+                Log.Error("Server Or Client Object Was Not A Reconzied Type: " + serverOrClient?.GetType().Name);
+            }
         }
 
-        public static void SendFileData(Client client, ReadOnlySpan<byte> fileChunk)
+        public static void OnDirectoriesCreated<T>(ulong directoryHash, T serverOrClient, ulong? sendingTo = null) where T : class
         {
-            client.SendData(Create.Data(Messages.FileData, client.ID, fileChunk));
+            if (serverOrClient is Server server)
+            {
+                if (sendingTo.HasValue)
+                    server.SendTo(sendingTo.Value, Header.CreateHeader(Messages.ReadyForFiles, directoryHash));
+                else
+                    server.SendToAll(Header.CreateHeader(Messages.ReadyForFiles, directoryHash));
+            }
+            else if (serverOrClient is Client client)
+            {
+                client.SendData(Header.CreateHeader(Messages.ReadyForFiles, directoryHash));
+            }
+            else
+            {
+                Log.Error("Server Or Client Object Was Not A Reconzied Type: " + serverOrClient?.GetType().Name);
+            }
         }
 
-        public static void SendFileChunkTo(Server server, ReadOnlySpan<byte> fileChunk, ulong clientID)
+        public static void SendDirectoryData<T>(ReadOnlySpan<byte> directoryData, ulong directoryHash, T serverOrClient, ulong? sendingTo = null) where T : class
         {
-            server.SendTo(clientID, Create.Data(Messages.FileData, clientID, fileChunk));
-        }
-
-        public static void SendFileChunk(Server server, ReadOnlySpan<byte> fileChunk)
-        {
-            server.SendToAll(Create.Data(Messages.FileData, Header.ALL_ULONG_ID, fileChunk));
-        }
-
-        public static void OnDirectoriesCreated(Server server, ulong clientID)
-        {
-            server.SendTo(clientID, Header.CreateHeader(Messages.ReadyForFiles, clientID));
-        }
-
-        public static void OnDirectoriesCreated(Client client)
-        {
-            client.SendData(Header.CreateHeader(Messages.ReadyForFiles, client.ID));
+            if (serverOrClient is Server server)
+            {
+                if (sendingTo.HasValue)
+                    server.SendTo(sendingTo.Value, Create.Data(Messages.DirectoryData, directoryHash, directoryData));
+                else
+                    server.SendToAll(Create.Data(Messages.DirectoryData, directoryHash, directoryData));
+            }
+            else if (serverOrClient is Client client)
+            {
+                client.SendData(Create.Data(Messages.DirectoryData, directoryHash, directoryData));
+            }
+            else
+            {
+                Log.Error("Server Or Client Object Was Not A Reconzied Type: " + serverOrClient?.GetType().Name);
+            }
         }
     }
 }

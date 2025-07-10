@@ -22,10 +22,9 @@ namespace TestServer
             while (server.ClientCount == 0)
                 Thread.Sleep(100);
 
-            void SendFileChunk(ReadOnlySpan<byte> fileChunk, Managment.Partial partial, long bytesRead)
+            static void SendFileChunk(ReadOnlySpan<byte> fileChunk, Managment.FileState partial, long bytesRead)
             {
                 Managment.SendFileChunk(server, fileChunk);
-                Console.WriteLine(bytesRead);
             }
 
             while (true)
@@ -39,7 +38,7 @@ namespace TestServer
 
                 if (File.Exists(line))
                 {
-                    Managment.SendSingleFile(line, SendFileChunk);
+                    Managment.SendSingleFile(line, SendFileChunk, server);
                 }
 
                 if (Directory.Exists(line))
@@ -59,7 +58,7 @@ namespace TestServer
                 Managment.SendAllFiles(mDirectoryPath, (fileData, fileState, currentFileSize) =>
                 {
                     Managment.SendFileChunkTo(server, fileData, clientID);
-                });
+                }, server);
             }
         }
     }
