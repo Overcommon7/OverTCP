@@ -44,7 +44,12 @@ namespace TestClient
                 {
                     if (request.mType == Messages.DirectoryData)
                     {
-                        Managment.CreateDirectoriesFromData(directory, request.Span, client.Client);
+                        Managment.CreateDirectoriesFromData(directory, request.Span, request.mHeaderID, client.Client, null, dir => directory = dir);
+                    }
+
+                    if (request.mType == Messages.DirectoryTransferComplete)
+                    {
+                        directory = Directory.GetCurrentDirectory() + '\\';
                     }
 
                     if (request.mType == Messages.FileData)
@@ -60,7 +65,7 @@ namespace TestClient
                         }                            
 
                         if (values.mState == Managment.RecievingState.Complete)
-                            Console.WriteLine(values);
+                            Console.WriteLine(values);                           
                     }
                 }                
             }

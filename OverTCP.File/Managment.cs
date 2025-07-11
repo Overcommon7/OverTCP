@@ -83,20 +83,24 @@ namespace OverTCP.File
 
         static async void CloseStream(ulong fileHash)
         {
-            int index = -1;
 
+            InternalValues? values;
             lock (sFileStreams)
             {
+                int index = -1;
                 index = sFileStreams.FindIndex(value => value.mHash == fileHash);
                 if (index == -1)
                     return;
+
+                values = sFileStreams[index].mValues;
+                sFileStreams.RemoveAt(index);
             }
 
-            await sFileStreams[index].mValues.mTask;
-            sFileStreams[index].mValues.mStream?.Close();
+            if (values is null)
+                return;
 
-            lock (sFileStreams)
-                sFileStreams.RemoveAt(index);
+            await values.mTask;
+            values.mStream?.Close();
         }
 
         public static ReadOnlySpan<byte> GetDirectoryData(string directory)
@@ -117,7 +121,7 @@ namespace OverTCP.File
             return Format.StructArrayToData(mDirectoryData);
         }
 
-        public static void CreateDirectoriesFromData<T>(string directory, Span<byte> entireDataPacket, T clientOrServer, ulong? sendingTo = null, Action<string>? OnDirectoriesCreated = null)
+        public static void CreateDirectoriesFromData<T>(string directory, Span<byte> directoryData, ulong directoryHash, T clientOrServer, ulong? sendingTo = null, Action<string>? OnDirectoriesCreated = null)
             where T : class
         {
             directory = Path.GetFullPath(directory);
@@ -125,14 +129,6 @@ namespace OverTCP.File
                 directory = directory.Remove(directory.Length - 1);
             if (!directory.EndsWith('\\'))
                 directory += '\\';
-
-            var directoryData = Extract.All(entireDataPacket, out Messages message, out ulong directoryHash);
-
-            if (message != Messages.DirectoryData)
-            {
-                Log.Error("Passed In Data Packet That Was Not Directory Data: " + message);
-                return;
-            }
 
             var directories = Format.DataToStructArray<FixedString_128>(directoryData);
             if (directories.Length == 0)
@@ -153,11 +149,11 @@ namespace OverTCP.File
                 Directory.CreateDirectory(root + directories[i]);
             }
 
-            Managment.OnDirectoriesCreated(directoryHash, clientOrServer, sendingTo);
             OnDirectoriesCreated?.Invoke(root);
+            Managment.OnDirectoriesCreated(directoryHash, clientOrServer, sendingTo);            
         }
 
-        public static async void SendAllFiles<T>(string directory, T serverOrClient, ulong? sendingTo, Action<FileChunkData>? OnChunkSent,
+        public static async void SendAllFiles<T>(string directory, T serverOrClient, ulong? sendingTo = null, Action<FileChunkData>? OnChunkSent = null,
             Action<T, string, ulong>? OnDirectoryComplete = null, Action<T, long, ulong>? OnDirectorySize = null, Action? OnFileError = null)
             where T : class
         {
@@ -226,7 +222,7 @@ namespace OverTCP.File
 
         public static void SendSingleFile<T>(string filepath, T serverOrClient, ulong? sendingTo = null, string? root = null, Action<FileChunkData>? OnChunkSent = null, Action? OnError = null) where T : class
         {
-            if (serverOrClient is not Client or Server)
+            if (serverOrClient is not Client && serverOrClient is not Server)
             {
                 Log.Error("Passed In Non-Server/Client Object Into Send File Function: " + serverOrClient?.GetType().Name);
                 return;
@@ -370,9 +366,9 @@ namespace OverTCP.File
 
         public static (RecievingState mState, ulong mFileHash) OnFileDataReceived<T>(ReadOnlySpan<byte> fileData, string directory, T clientOrServer, ulong? receivingFrom = null) where T : class
         {
-            if (clientOrServer is not Client or Server)
+            if (clientOrServer is not Client && clientOrServer is not Server)
             {
-                Log.Error("Passed In Invalid Client Or Server Object");
+                Log.Error("Passed In Invalid Client Or Server Object: " + clientOrServer.GetType().Name);
                 return (RecievingState.Error, ulong.MaxValue);
             }
 
