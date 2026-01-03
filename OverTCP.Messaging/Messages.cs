@@ -5,8 +5,12 @@ namespace OverTCP.Messaging
 {
     public enum Messages : int
     {
-        Placeholder,
+        Error = -1,
 
+        Placeholder,
+        GetUpdateDirectories,
+        Download,
+        
         FileData = 100_000,
         DirectoryData,
         FileCount,
@@ -14,6 +18,7 @@ namespace OverTCP.Messaging
         FileDataError,
         PauseFileChunks,
         ResumeFileChunks,
-        DirectoryTransferComplete
+        DirectoryTransferComplete,
+
     }
 }

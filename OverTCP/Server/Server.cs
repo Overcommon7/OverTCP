@@ -265,7 +265,7 @@ namespace OverTCP
             OnClientConnected?.Invoke(client.ID, client.Client);
         }
 
-        private bool IsClientConnected(ConnectedClient client)
+        private static bool IsClientConnected(ConnectedClient client)
         {
             Socket socket = client.Client.Client;
 

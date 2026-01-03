@@ -33,8 +33,7 @@ namespace OverTCP
 
             if (retryCount <= 0)
             {
-                if (exception is null)
-                    exception = new Exception();
+                exception ??= new Exception();
                 Log.Error(exception.Message);
                 return false;
             }

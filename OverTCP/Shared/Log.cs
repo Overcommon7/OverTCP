@@ -14,7 +14,8 @@ namespace OverTCP
         }
 
 
-        public static event Action<string, Severity>? OnMessagePosted;
+        public static event Action<string, string, Severity>? OnMessagePosted;
+        public static event Action<Exception, Exception?>? OnExceptionPosted;
         static string mMessage = string.Empty;
         public static void Message(object? message)
         {
@@ -26,6 +27,9 @@ namespace OverTCP
         }
         public static void Error(object? message)
         {
+            if (message is Exception exception)
+                OnExceptionPosted?.Invoke(exception, exception.InnerException);
+
             Error(message?.ToString());
         }
 
@@ -36,8 +40,7 @@ namespace OverTCP
             else
                 mMessage = "MESAGE: " + message;
            
-            Console.WriteLine(mMessage);
-            OnMessagePosted?.Invoke(mMessage, Severity.Message);
+            OnMessagePosted?.Invoke(mMessage, string.Empty, Severity.Message);
         }
         public static void Warning(string? message)
         {
@@ -47,9 +50,7 @@ namespace OverTCP
             else
                 mMessage = "WARNING: " + message;
 
-            Console.WriteLine(mMessage);
-            Console.WriteLine(new StackTrace(true));
-            OnMessagePosted?.Invoke(mMessage, Severity.Warning);
+            OnMessagePosted?.Invoke(mMessage, new StackTrace(true).ToString(), Severity.Warning);
             Console.ResetColor();
         }
         public static void Error(string? message)
@@ -60,9 +61,7 @@ namespace OverTCP
             else
                 mMessage = "ERROR: " + message;
 
-            Console.WriteLine(mMessage);
-            Console.WriteLine(new StackTrace(true));
-            OnMessagePosted?.Invoke(mMessage, Severity.Error);
+            OnMessagePosted?.Invoke(mMessage, new StackTrace(true).ToString(), Severity.Error);
             Console.ResetColor();
         }
     }

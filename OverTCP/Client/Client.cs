@@ -34,8 +34,6 @@ namespace OverTCP
         public IPAddress IPAddress => mAddress ?? throw new NullReferenceException();
         public Client(int pollingInterval = 16, bool automaticMemoryManagement = true)
         {
-            mPollingThread = new Thread(PollingLoop);
-            mPollingThread.IsBackground = true;
             mPollingInterval = pollingInterval;
             mIsPolling = false;
             mAutomaticMemoryManagement = automaticMemoryManagement;
@@ -61,11 +59,25 @@ namespace OverTCP
             mIsPolling = true;
             mAddress = address;
             mPort = port;
+            mPollingThread = new Thread(PollingLoop);
+            mPollingThread.IsBackground = true;
             mPollingThread.Start();
             Log.Message("Connected To Server");
 
+            int retries = 50;
             while (mID == 0)
+            {
                 Thread.Sleep(mPollingInterval);
+                --retries;
+                if (retries == 0)
+                {
+                    Log.Error("Did Not Recieve ID From Server");
+                    mIsPolling = false;
+                    Disconnect();
+                    return false;
+                }
+            }
+                
 
             return true;            
         }
@@ -115,7 +127,7 @@ namespace OverTCP
                 {
                     Thread.Sleep(mPollingInterval);
                     ++retries;
-                    if (retries >= 5)
+                    if (retries >= 500)
                     {
                         Log.Error("Could Not Establish Server Authorized Identifier");
                         OnErrorPosted?.Invoke(new Exception("Could Not Establish Server Authorized Identifier"));
@@ -145,24 +157,24 @@ namespace OverTCP
                 FreeAllocatedArrays();
 
 
-            while (true)
+            while (mIsPolling)
             {
-                var values = IncomingDataHandler.HandleFromClient(TCPClient, out var data, out var exception);
+                var (mReadCode, mIsRentedFromPool, mSize) = IncomingDataHandler.HandleFromClient(TCPClient, out var data, out var exception);
 
-                if (values.mIsRentedFromPool && data is not null)
+                if (mIsRentedFromPool && data is not null)
                 {
                     lock (mRentedArrays)
                         mRentedArrays.Add(data);
                 }
                     
-                if (values.mReadCode == ReadCode.AllDataRead)
+                if (mReadCode == ReadCode.AllDataRead)
                     break;
 
-                else if (values.mReadCode == ReadCode.ReadSuccesful && data is not null)
+                else if (mReadCode == ReadCode.ReadSuccesful && data is not null)
                 {
-                    if (data.Length != values.mSize)
+                    if (data.Length != mSize)
                     {
-                        OnDataRecieved?.Invoke(data.AsMemory(0, values.mSize));
+                        OnDataRecieved?.Invoke(data.AsMemory(0, mSize));
                     }
                     else
                     {
@@ -171,10 +183,10 @@ namespace OverTCP
                         
                 }
                     
-                else if (values.mReadCode == ReadCode.Error)
+                else if (mReadCode == ReadCode.Error)
                     OnErrorPosted?.Invoke(exception ?? new Exception("Reading Error"));
 
-                else if (values.mReadCode == ReadCode.ServerDisconnected)
+                else if (mReadCode == ReadCode.ServerDisconnected)
                 {
                     ServerClosed();
                     return;
@@ -235,9 +247,7 @@ namespace OverTCP
             mIsPolling = false;
             mPollingThread.Join();
 
-            if (TCPClient is not null)
-                TCPClient.Dispose();
-
+            TCPClient?.Dispose();
             TCPClient = null;
         }
     }

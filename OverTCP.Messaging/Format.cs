@@ -15,7 +15,7 @@ namespace OverTCP.Messaging
                 return true;
             }
             catch (Exception)
-            {
+            {    
                 value = default(T);
                 return false;
             }

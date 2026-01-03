@@ -4,7 +4,6 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Reflection;
-using static OverTCP.File.Managment;
 
 namespace OverTCP.File
 {
@@ -121,10 +120,19 @@ namespace OverTCP.File
             return Format.StructArrayToData(mDirectoryData);
         }
 
-        public static void CreateDirectoriesFromData<T>(string directory, Span<byte> directoryData, ulong directoryHash, T clientOrServer, ulong? sendingTo = null, Action<string>? OnDirectoriesCreated = null)
+        public static void CreateDirectoriesFromData<T>(string directory, ReadOnlySpan<byte> directoryData, ulong directoryHash, T clientOrServer, ulong? sendingTo = null, Action<string>? OnDirectoriesCreated = null)
             where T : class
         {
-            directory = Path.GetFullPath(directory);
+            try
+            {
+                directory = Path.GetFullPath(directory);
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error(ex);
+                return;
+            }
+           
             if (directory.EndsWith('/'))
                 directory = directory.Remove(directory.Length - 1);
             if (!directory.EndsWith('\\'))
@@ -139,14 +147,22 @@ namespace OverTCP.File
                 
             string root = directory + new DirectoryInfo(directories[0].Value).Name + '\\';
 
-            if (Directory.Exists(root))
-                Directory.Delete(root, true);
-
-            Directory.CreateDirectory(root);
-
-            for (int i = 1; i < directories.Length; i++)
+            try
             {
-                Directory.CreateDirectory(root + directories[i]);
+                if (Directory.Exists(root))
+                    Directory.Delete(root, true);
+
+                Directory.CreateDirectory(root);
+
+                for (int i = 1; i < directories.Length; i++)
+                {
+                    Directory.CreateDirectory(root + directories[i]);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error(ex);
+                return;
             }
 
             OnDirectoriesCreated?.Invoke(root);
@@ -214,9 +230,23 @@ namespace OverTCP.File
             foreach (var entry in files)
             {
                 bool result = await SendSingleFile_Internal(entry, serverOrClient, sendingTo, OnChunkSent, directory, OnFileError);
-                if (!result) return;
+                if (!result) 
+                    return;
             }
             
+            if (serverOrClient is Server s)
+            {
+                if (sendingTo.HasValue)
+                    s.SendTo(sendingTo.Value, Header.CreateHeader(Messages.DirectoryTransferComplete, sendingTo.Value));
+                else
+                    s.SendToAll(Header.CreateHeader(Messages.DirectoryTransferComplete, Header.ALL_ULONG_ID));
+            }
+            else if (serverOrClient is Client c)
+            {
+                c.SendData(Header.CreateHeader(Messages.DirectoryTransferComplete, c.ID));
+            }
+
+
             OnDirectoryComplete?.Invoke(serverOrClient, directoryName, directoryHash);
         }
 
@@ -392,7 +422,6 @@ namespace OverTCP.File
                     buffer = fileData.Slice(FixedString_128.Size + 1);
                     values = GetStream(directory, relativePath);
                     fileHash = ClientExtenstions.HashString(relativePath.Value);
-                    Console.WriteLine(fileHash);
                 }
                 else
                 {
@@ -512,7 +541,7 @@ namespace OverTCP.File
                 else
                 {
                     fileHash.Pack().CopyTo(buffer.AsSpan(1, sizeof(ulong)));
-                    index += HEADER_SIZE;
+                    index += sizeof(ulong);
                 }
 
                 int count = buffer.Length - index;
@@ -540,7 +569,7 @@ namespace OverTCP.File
             if (serverOrClient is Server server)
             {
                 if (sendingTo.HasValue)
-                    server.SendTo(sendingTo.Value, Create.Data(Messages.FileData, Header.ALL_ULONG_ID, fileChunk));
+                    server.SendTo(sendingTo.Value, Create.Data(Messages.FileData, sendingTo.Value, fileChunk));
                 else
                     server.SendToAll(Create.Data(Messages.FileData, Header.ALL_ULONG_ID, fileChunk));
             }
